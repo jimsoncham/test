@@ -1,0 +1,372 @@
+```html
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Sales System v11</title>
+
+<style>
+body { font-family: Arial; margin:20px;}
+.section { border:1px solid #aaa; padding:15px; margin-bottom:20px;}
+table { border-collapse: collapse; width:100%; margin-top:10px;}
+th, td { border:1px solid #ccc; padding:6px; text-align:center; vertical-align: top;}
+button { margin:3px; padding:5px 10px;}
+textarea { width:100%; height:200px; }
+
+.pill {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:3px 8px;
+  margin:2px;
+  border-radius:999px;
+  border:1px solid #bbb;
+  background:#f5f5f5;
+  font-size:10px;
+  white-space:nowrap;
+}
+
+.pill-text { font-weight:500; }
+
+.pill-btn {
+  border:none;
+  background:transparent;
+  cursor:pointer;
+  font-size:10px;
+  padding:0 2px;
+}
+
+.pill-btn:hover { color:#007bff; }
+.pill-remove:hover { color:red; }
+
+.error{color:red;}
+.ok{color:green;}
+</style>
+
+</head>
+
+<body>
+
+<h1>Sales System v11</h1>
+
+<div class="section">
+<h2>Sales Entry</h2>
+
+Date:
+<input type="date" id="date">
+
+Salesman:
+<select id="salesman">
+<option>John</option>
+<option>Mike</option>
+<option>Anna</option>
+<option>Paul</option>
+<option>Lisa</option>
+</select>
+
+<br><br>
+
+Item:
+<select id="item">
+<option value="Belt|500">Belt - ₱500</option>
+<option value="Wallet|800">Wallet - ₱800</option>
+<option value="Bag|1500">Bag - ₱1500</option>
+</select>
+
+Qty: <input id="qtyInput" type="number" value="1">
+
+Discount:
+<select id="discount">
+<option value="0">0%</option>
+<option value="0.1">10%</option>
+</select>
+
+<button onclick="addItem()">Add</button>
+
+<table>
+<thead><tr><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
+<tbody id="itemsBody"></tbody>
+</table>
+
+Total: ₱<span id="total">0</span>
+
+<br><br>
+
+Last Item? <input type="checkbox" id="lastItem">
+
+<br><br>
+
+<button onclick="submitSale(false)">Submit</button>
+<button style="background:#28a745;color:#fff" onclick="submitSale(true)">
+✔ Submit & Close Day
+</button>
+
+<div id="msg"></div>
+
+</div>
+
+<div class="section">
+<h2>Dashboard</h2>
+
+📅 Filter Date:
+<input type="date" id="filterDate">
+<button onclick="load()">Apply</button>
+
+<br><br>
+
+<button onclick="closeDay()">🔒 CLOSE DAY</button>
+
+<br><br>
+
+Actual Cash:
+<input id="actualCash" type="number" value="0">
+
+<div id="summary"></div>
+
+<h3>Salesman Summary</h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Total</th>
+<th>Status</th>
+<th>Items</th>
+<th>Add</th>
+</tr>
+</thead>
+<tbody id="salesmanTable"></tbody>
+</table>
+
+<h3>Invoice</h3>
+<textarea id="invoiceBox"></textarea><br>
+<button onclick="sendEmail()">📧 Send Email</button>
+
+</div>
+
+<script>
+
+const ALL = ["John","Mike","Anna","Paul","Lisa"];
+let items=[];
+
+let today = new Date().toISOString().split('T')[0];
+date.value = today;
+filterDate.value = today;
+
+function addItem(){
+ let [name,price]=item.value.split("|");
+ let qty=parseFloat(qtyInput.value)||0;
+ let disc=parseFloat(discount.value)||0;
+
+ if(qty<=0){ alert("Invalid qty"); return;}
+
+ let total=qty*price*(1-disc);
+ items.push({name,qty,price,disc,total});
+ render();
+}
+
+function render(){
+ let html="",sum=0;
+ items.forEach(i=>{
+   sum+=i.total;
+   html+=`<tr>
+     <td>${i.name}</td>
+     <td>${i.qty}</td>
+     <td>${i.total.toFixed(2)}</td>
+   </tr>`;
+ });
+ itemsBody.innerHTML=html;
+ total.innerText=sum.toFixed(2);
+}
+
+function submitSale(forceClose){
+
+ if(items.length===0 && !forceClose){
+   alert("No items");
+   return;
+ }
+
+ let sales=JSON.parse(localStorage.getItem("sales")||"[]");
+
+ sales.push({
+   date:date.value,
+   name:salesman.value,
+   items:items,
+   closed: forceClose ? true : lastItem.checked
+ });
+
+ localStorage.setItem("sales",JSON.stringify(sales));
+
+ items=[];
+ render();
+
+ msg.innerHTML = forceClose
+   ? "<span class='ok'>Submitted & CLOSED</span>"
+   : "<span class='ok'>Saved</span>";
+}
+
+function load(){
+
+ let filter = filterDate.value;
+
+ let sales=JSON.parse(localStorage.getItem("sales")||"[]");
+ sales = sales.filter(s => s.date === filter);
+
+ let map={};
+
+ sales.forEach((s,si)=>{
+   if(!map[s.name]){
+     map[s.name]={items:[],closed:false};
+   }
+
+   s.items.forEach((it,ii)=>{
+     map[s.name].items.push({...it,si,ii});
+   });
+
+   if(s.closed) map[s.name].closed=true;
+ });
+
+ let html="";
+
+ ALL.forEach(name=>{
+
+   let data=map[name];
+
+   if(!data){
+     html+=`<tr>
+       <td>${name}</td>
+       <td>0</td>
+       <td class="error">NO REPORT</td>
+       <td></td>
+       <td><button onclick="addNew('${name}')">Add</button></td>
+     </tr>`;
+     return;
+   }
+
+   let total=0;
+   data.items.forEach(i=> total+=i.total);
+
+   let pills="";
+   data.items.forEach(it=>{
+     pills+=`
+     <span class="pill">
+       <span class="pill-text">
+         ${it.name} x${it.qty} ₱${it.total.toFixed(0)}
+       </span>
+       <button class="pill-btn" onclick="editItem(${it.si},${it.ii})">✏️</button>
+       <button class="pill-btn pill-remove" onclick="removeItem(${it.si},${it.ii})">✕</button>
+     </span>`;
+   });
+
+   /* ✅ SUBTOTAL INSIDE ITEMS COLUMN */
+   pills += `
+   <div style="margin-top:4px; font-size:11px; font-weight:bold;">
+     Subtotal: ₱${total.toFixed(2)}
+   </div>
+   `;
+
+   let status="OPEN";
+   if(data.items.length===0) status="NO REPORT";
+   else if(data.closed) status="CLOSED";
+
+   html+=`<tr>
+     <td>${name}</td>
+     <td>${total.toFixed(2)}</td>
+     <td>${status}</td>
+     <td>${pills}</td>
+     <td><button onclick="addNew('${name}')">Add</button></td>
+   </tr>`;
+ });
+
+ salesmanTable.innerHTML=html;
+
+ let sys=0;
+ Object.values(map).forEach(d=>{
+   d.items.forEach(i=> sys+=i.total);
+ });
+
+ let actual=parseFloat(actualCash.value)||0;
+ let status=(sys===actual)?"✅ MATCH":"❌ NOT MATCH";
+
+ summary.innerHTML=`
+ Date: ${filter}<br>
+ System: ₱${sys.toFixed(2)}<br>
+ Actual: ₱${actual.toFixed(2)}<br>
+ ${status}
+ `;
+}
+
+function removeItem(si,ii){
+ let sales=JSON.parse(localStorage.getItem("sales"));
+ sales[si].items.splice(ii,1);
+ localStorage.setItem("sales",JSON.stringify(sales));
+ load();
+}
+
+function editItem(si,ii){
+ let sales=JSON.parse(localStorage.getItem("sales"));
+ let it=sales[si].items[ii];
+
+ let qty=parseFloat(prompt("New qty",it.qty));
+ if(!qty) return;
+
+ it.qty=qty;
+ it.total=qty*it.price*(1-it.disc);
+
+ localStorage.setItem("sales",JSON.stringify(sales));
+ load();
+}
+
+function addNew(name){
+ let itemName=prompt("Item: Belt/Wallet/Bag");
+ let qty=parseFloat(prompt("Qty"))||0;
+
+ let priceMap={Belt:500,Wallet:800,Bag:1500};
+ if(!priceMap[itemName]){alert("Invalid");return;}
+
+ let price=priceMap[itemName];
+ let total=qty*price;
+
+ let sales=JSON.parse(localStorage.getItem("sales")||"[]");
+
+ sales.push({
+   date:filterDate.value,
+   name:name,
+   items:[{name:itemName,qty,price,disc:0,total}],
+   closed:false
+ });
+
+ localStorage.setItem("sales",JSON.stringify(sales));
+ load();
+}
+
+function closeDay(){
+ let filter = filterDate.value;
+ let sales=JSON.parse(localStorage.getItem("sales")||"[]");
+
+ sales = sales.filter(s => s.date === filter);
+
+ let txt="DAILY SALES ("+filter+")\n\n";
+
+ sales.forEach(s=>{
+   s.items.forEach(i=>{
+     txt+=`${i.name} x${i.qty} ₱${i.total} ${s.name}\n`;
+   });
+ });
+
+ invoiceBox.value=txt;
+ localStorage.setItem("invoiceText",txt);
+}
+
+function sendEmail(){
+ let body=localStorage.getItem("invoiceText");
+ if(!body){alert("No invoice");return;}
+ window.location.href="mailto:sales@mcjimleather.com?body="+encodeURIComponent(body);
+}
+
+load();
+
+</script>
+
+</body>
+</html>
+```
